@@ -1,0 +1,309 @@
+CREATE DATABASE SNS; 
+
+USE SNS; 
+
+/* 6 Tables: 
+- Accounts
+- Engagements
+- Media
+- Posts
+- User Following
+- User Profiles
+- Username_Record 
+*/ 
+
+-- CREATE TABLES WITH PRIMARY AND FOREIGN KEYS
+
+-- ACCOUNTS TABLE
+-- Table for registration information 
+-- Check each account has one form of contact information 
+
+CREATE TABLE Accounts(
+ACCOUNT_ID INT(7) PRIMARY KEY AUTO_INCREMENT, 
+EMAIL VARCHAR(30) UNIQUE, 
+PHONE CHAR(11) UNIQUE, 
+BIRTHDAY DATE NOT NULL
+);
+
+ALTER TABLE Accounts
+ADD CONSTRAINT REGISTRATION_INFO 
+CHECK (EMAIL IS NOT NULL OR PHONE IS NOT NULL);
+
+-- MEDIA TABLE
+-- Table for media uploaded by users
+-- Check media type is either 'PHOTO', 'VIDEO', ;'GIF'
+
+CREATE TABLE Media (
+MEDIA_ID INT(10) PRIMARY KEY AUTO_INCREMENT, 
+MEDIA_AUTHOR_ID INT(7) NOT NULL, 
+MEDIA_TYPE VARCHAR(5) NOT NULL, 
+MEDIA_UPLOAD_TIME TIME,
+MEDIA_UPLOAD_DATE DATE,
+FOREIGN KEY (MEDIA_AUTHOR_ID) REFERENCES Accounts(ACCOUNT_ID)
+);
+
+ALTER TABLE Media
+ADD CONSTRAINT MEDIA_TYPES
+CHECK (MEDIA_TYPE = 'PHOTO' OR MEDIA_TYPE = 'VIDEO' OR MEDIA_TYPE = 'GIF');
+
+-- POSTS TABLE
+-- Table for posts made by users
+-- Check post type is either 'REPLY' or 'ORIGINAL' 
+
+CREATE TABLE Posts (
+POST_ID INT(10) PRIMARY KEY AUTO_INCREMENT, 
+POST_AUTHOR_ID INT(7) NOT NULL, 
+POST_TYPE VARCHAR(10) NOT NULL, 
+POST_TIME TIME NOT NULL, 
+POST_DATE DATE NOT NULL, 
+MENTIONED_USER_ID INT(7),
+MEDIA_ID INT(10), 
+
+FOREIGN KEY (MENTIONED_USER_ID) REFERENCES Accounts(ACCOUNT_ID), 
+FOREIGN KEY (MEDIA_ID) REFERENCES Media(MEDIA_ID)
+); 
+
+ALTER TABLE Posts 
+ADD CONSTRAINT POST_TYPE
+CHECK (POST_TYPE = 'REPLY' OR POST_TYPE = 'ORIGINAL'); 
+
+-- ENGAGEMENTS TABLE
+-- Table for engagements (when a post is liked / reposted)
+-- Check engagement type is 'LIKE' or 'REPOST'
+
+CREATE TABLE Engagements (
+POST_ID INT(10),  
+ENGAGEMENT_ACCOUNT_ID INT(7) NOT NULL,
+ENGAGEMENT_TYPE VARCHAR(10), 
+ENGAGEMENT_TIME TIME,
+ENGAGEMENT_DATE DATE,
+
+FOREIGN KEY (POST_ID) REFERENCES Posts(POST_ID), 
+FOREIGN KEY (ENGAGEMENT_ACCOUNT_ID) REFERENCES Accounts(ACCOUNT_ID) 
+); 
+
+ALTER TABLE Engagements
+ADD CONSTRAINT ENGAGEMENT_TYPE
+CHECK (ENGAGEMENT_TYPE = 'LIKE' OR ENGAGEMENT_TYPE = 'REPOST'); 
+
+-- USER_FOLLOWING
+-- Table for who is following who 
+
+CREATE TABLE User_Following (
+ACCOUNT_ID INT(7) NOT NULL,
+FOLLOWING_ACCOUNT_ID INT(7) NOT NULL,
+FOREIGN KEY (ACCOUNT_ID) REFERENCES Accounts(ACCOUNT_ID)); 
+
+ALTER TABLE User_Following
+ADD FOREIGN KEY (FOLLOWING_ACCOUNT_ID) REFERENCES Accounts(ACCOUNT_ID);
+
+-- USER_PROFILES
+-- Table for a user's front-end display information (display name, username, accoount privacy)
+
+CREATE TABLE User_Profiles(
+ACCOUNT_ID INT(7) NOT NULL UNIQUE, 
+USERNAME VARCHAR(30) NOT NULL UNIQUE, 
+DISPLAY_NAME VARCHAR(30) NOT NULL, 
+ACCOUNT_PRIVACY BOOLEAN NOT NULL,
+
+FOREIGN KEY (ACCOUNT_ID) REFERENCES Accounts(ACCOUNT_ID) 
+); 
+
+-- USERNAME_RECORD
+-- Keep record of when users change username
+
+CREATE TABLE Username_Record (
+ACCOUNT_ID INT,
+NEW_USERNAME VARCHAR(30),
+OLD_USERNAME VARCHAR(30),
+TIME_LOGGED TIMESTAMP,
+
+FOREIGN KEY (ACCOUNT_ID) REFERENCES Accounts(ACCOUNT_ID));
+
+-- SUBQUERY
+-- Return all usernames following account with username 'helium'
+
+SELECT User_Profiles.USERNAME AS FOLLOWER_USERNAME
+FROM User_Profiles
+JOIN (
+	SELECT User_Following.ACCOUNT_ID AS FOLLOWER_ID, User_Following.FOLLOWING_ACCOUNT_ID, 
+	User_Profiles.USERNAME AS FOLLOWING_USERNAME
+	FROM User_Profiles
+	JOIN User_Following
+	ON User_Profiles.ACCOUNT_ID = User_Following.FOLLOWING_ACCOUNT_ID) FOLLOWING
+ON User_Profiles.ACCOUNT_ID = FOLLOWING.FOLLOWER_ID
+WHERE FOLLOWING_USERNAME = 'helium';
+
+-- VIEWS
+-- Table showing posts where account privacy is NOT set to private
+-- Returns timestamp, media type if any, and mentioned user if any
+
+CREATE VIEW Public_Posts_Full AS (
+	SELECT  Posts.POST_ID, Post_Author.USERNAME as AUTHOR, 
+	concat(Posts.POST_TIME," ", Posts.POST_DATE) AS POST_TIMESTAMP, 
+	Media.MEDIA_TYPE, Mentioned_Profiles.USERNAME as MENTIONED
+	FROM Posts
+	JOIN User_Profiles Post_Author
+		ON Posts.POST_AUTHOR_ID = Post_Author.ACCOUNT_ID
+	LEFT JOIN Media
+		ON Posts.MEDIA_ID = Media.MEDIA_ID
+	LEFT JOIN User_Profiles Mentioned_Profiles
+		ON Posts.MENTIONED_USER_ID = Mentioned_Profiles.ACCOUNT_ID
+	WHERE Post_Author.ACCOUNT_PRIVACY = 0);
+
+SELECT * FROM Public_Posts_Full;	
+
+-- FUNCTIONS
+
+-- Calculate Engagements
+-- IN: Post_ID
+-- OUT: Total engagements for post (all types)
+
+SELECT * FROM Engagements;
+DELIMITER //
+CREATE FUNCTION Calculate_Engagements(
+    POST_TO_FIND INT)
+RETURNS INT 
+DETERMINISTIC
+BEGIN
+	DECLARE TOTAL_ENGAGEMENTS INT DEFAULT 0;
+	SELECT COUNT(Engagements.POST_ID) INTO TOTAL_ENGAGEMENTS
+    FROM Engagements 
+		WHERE Engagements.POST_ID = POST_TO_FIND
+	GROUP BY Engagements.POST_ID;
+	RETURN TOTAL_ENGAGEMENTS;
+END //
+DELIMITER ;
+
+SELECT Posts.POST_ID, Calculate_Engagements(Posts.POST_ID) as TOTAL_ENGAGEMENT
+FROM Posts;
+
+-- Calculate Followers
+-- IN: Account_ID
+-- OUT: Total Followers
+
+DELIMITER //
+CREATE FUNCTION Calculate_Followers(
+    ACCOUNT_ID INT)
+RETURNS INT 
+DETERMINISTIC
+BEGIN
+	DECLARE TOTAL_FOLLOWERS INT DEFAULT 0;
+	SELECT COUNT(User_Following.FOLLOWING_ACCOUNT_ID) INTO TOTAL_FOLLOWERS
+    FROM User_Following
+		WHERE User_Following.ACCOUNT_ID = ACCOUNT_ID
+	GROUP BY  User_Following.ACCOUNT_ID;
+	RETURN TOTAL_FOLLOWERS;
+END //
+DELIMITER ;
+
+-- Calculate Following
+-- IN: Account_ID
+-- OUT: Total Followers
+
+DELIMITER //
+CREATE FUNCTION Calculate_Following(
+    ACCOUNT_ID INT)
+RETURNS INT 
+DETERMINISTIC
+BEGIN
+	DECLARE TOTAL_FOLLOWING INT DEFAULT 0;
+	SELECT COUNT(User_Following.FOLLOWING_ACCOUNT_ID) INTO TOTAL_FOLLOWING
+    FROM User_Following
+		WHERE User_Following.FOLLOWING_ACCOUNT_ID = ACCOUNT_ID
+	GROUP BY  User_Following.FOLLOWING_ACCOUNT_ID;
+	RETURN TOTAL_FOLLOWING;
+END //
+DELIMITER ;
+
+SELECT User_Profiles.USERNAME as USERNAME, 
+Calculate_Following(ACCOUNT_ID) as FOLLOWING, 
+Calculate_Followers(ACCOUNT_ID) as FOLLOWERS
+FROM User_Profiles;
+
+-- User_Age
+-- IN: Birthday
+-- Out: User's age today
+
+DELIMITER //
+CREATE FUNCTION User_Age (
+	BIRTHDAY DATETIME)
+RETURNS INT
+DETERMINISTIC
+BEGIN 
+	DECLARE AGE INT;
+    SET AGE = TRUNCATE((DATEDIFF(NOW(),BIRTHDAY)/365),0);
+    RETURN AGE;
+END // 
+DELIMITER ;
+
+-- GROUP BY
+-- Analyse average followers, following, engagement by user age
+
+SELECT User_Age(Accounts.BIRTHDAY) AS USER_AGE, AVG(Calculate_Followers(Accounts.ACCOUNT_ID)) AS AVG_FOLLOWERS,
+AVG(Calculate_Following(Accounts.ACCOUNT_ID)) AS AVG_FOLLOWING,
+COUNT(Posts.POST_ID) AS TOTAL_POSTS,
+AVG(Calculate_Engagements(Posts.POST_ID)) AS AVG_ENGAGEMENTS
+FROM User_Profiles
+	JOIN Accounts
+		ON User_Profiles.ACCOUNT_ID = Accounts.ACCOUNT_ID
+	JOIN Posts
+		ON User_Profiles.ACCOUNT_ID = Posts.POST_AUTHOR_ID
+GROUP BY USER_AGE
+ORDER BY USER_AGE ASC;
+
+-- TRIGGER
+-- Record username changes
+
+SELECT * FROM User_Profiles;
+
+CREATE TRIGGER Username_Change
+BEFORE UPDATE ON User_Profiles
+FOR EACH ROW
+	INSERT INTO Username_Record 
+    SET 
+		ACCOUNT_ID = OLD.ACCOUNT_ID,
+        NEW_USERNAME = NEW.USERNAME,
+        OLD_USERNAME = OLD.USERNAME,
+        TIME_LOGGED = NOW();
+
+UPDATE User_Profiles
+SET User_Profiles.USERNAME = 'maybeswell'
+WHERE ACCOUNT_ID = 7;
+
+SELECT * FROM User_Profiles;
+SELECT * FROM Username_Record;
+
+-- PROCEDURE
+-- When a new user signs up, they input their details
+-- If user is less than 18, return error mesage
+-- If email or phone number is already in use, return error mesage
+-- Else insert values into Accounts table
+
+DELIMITER // 
+CREATE PROCEDURE New_Signup (
+    IN SIGNUP_EMAIL VARCHAR(50),
+    IN SIGNUP_PHONE CHAR(11),
+    IN SIGNUP_BIRTHDAY DATE
+)
+DETERMINISTIC
+BEGIN 
+IF User_Age(SIGNUP_BIRTHDAY) < 18
+	THEN SELECT 'Users cannot be under 18.';
+ELSEIF EXISTS (SELECT * FROM Accounts WHERE EMAIL = SIGNUP_EMAIL OR PHONE = SIGNUP_PHONE)
+	THEN SELECT 'You are already registered.';
+ELSE
+		BEGIN
+		INSERT INTO Accounts (EMAIL, PHONE, BIRTHDAY)
+		VALUES (SIGNUP_EMAIL, SIGNUP_PHONE,SIGNUP_BIRTHDAY);
+        END;
+        SELECT 'Sign-up successful!';
+END IF;
+END // 
+DELIMITER ;
+
+-- DUPLICATE SIGNUP 
+-- CALL New_Signup('00675B3884@mail.com', 07429899994,'1999-04-16');
+
+-- UNDER 18
+-- CALL New_Signup('under18@mail.com', 07429899994,'2022-04-16');
