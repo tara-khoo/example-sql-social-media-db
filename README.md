@@ -1,5 +1,7 @@
 # Example Social Media DB
-Example SQL DB for a fictional social media network including queries, views, functions, triggers and procedures
+Example SQL DB for a fictional social media network including queries, views, functions, triggers and procedures. 
+
+Completed for Code First Girls' SQL Course.
 
 ## Tables
 
