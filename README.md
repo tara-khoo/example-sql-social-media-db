@@ -5,7 +5,7 @@ Completed for Code First Girls' SQL Course.
 
 ## Tables
 
-Code is in `create_table.sql` There are a total of 6 tables: 
+Code is in `create_table.sql`. There are a total of 6 tables: 
 
 - `Accounts`: user sign-up information
 - `Engagements`: interactions with a post by users
